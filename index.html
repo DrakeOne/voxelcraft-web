@@ -58,6 +58,23 @@
             font-family: monospace;
         }
         
+        #flyingIndicator {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background: rgba(0,255,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            display: none;
+            pointer-events: none;
+        }
+        
+        #flyingIndicator.active {
+            display: block;
+        }
+        
         #crosshair {
             position: absolute;
             top: 50%;
@@ -156,6 +173,28 @@
         #jump-btn {
             grid-column: span 2;
             width: 130px;
+        }
+        
+        #fly-btn {
+            grid-column: span 2;
+            width: 130px;
+            background: rgba(100,100,255,0.3);
+            border-color: rgba(100,100,255,0.5);
+        }
+        
+        #fly-btn.active {
+            background: rgba(0,255,0,0.5);
+            border-color: rgba(0,255,0,0.8);
+        }
+        
+        #fly-up-btn, #fly-down-btn {
+            display: none;
+            background: rgba(255,255,100,0.3);
+            border-color: rgba(255,255,100,0.5);
+        }
+        
+        #fly-up-btn.visible, #fly-down-btn.visible {
+            display: flex;
         }
         
         /* Inventario rápido */
@@ -283,6 +322,8 @@
         Pos: <span id="position">0, 0, 0</span>
     </div>
     
+    <div id="flyingIndicator" class="hud">✈️ MODO VUELO</div>
+    
     <div id="crosshair"></div>
     
     <!-- Hotbar -->
@@ -307,7 +348,10 @@
         <div class="action-buttons">
             <button class="action-btn" id="place-btn">Colocar</button>
             <button class="action-btn" id="break-btn">Romper</button>
+            <button class="action-btn" id="fly-up-btn">↑ Subir</button>
+            <button class="action-btn" id="fly-down-btn">↓ Bajar</button>
             <button class="action-btn" id="jump-btn">Saltar</button>
+            <button class="action-btn" id="fly-btn">🚁 Volar</button>
         </div>
     </div>
     
@@ -388,6 +432,14 @@
                 console.log('🧪 Running automatic diagnostics...');
                 if (window.debug) {
                     window.debug.test();
+                }
+                
+                // Activar modo vuelo automáticamente al inicio
+                if (window.player) {
+                    console.log('✈️ Activando modo vuelo...');
+                    window.player.isFlying = true;
+                    window.player.position.y = 100; // Empezar volando alto
+                    document.getElementById('flyingIndicator').classList.add('active');
                 }
             }, 3000);
         });
