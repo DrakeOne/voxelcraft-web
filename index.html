@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VoxelCraft - v0.1.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: crosshair;
+        }
+        
+        /* HUD */
+        .hud {
+            position: absolute;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #version {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        
+        #stats {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+        }
+        
+        #crosshair::before,
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            background: white;
+            box-shadow: 0 0 3px rgba(0,0,0,0.8);
+        }
+        
+        #crosshair::before {
+            width: 20px;
+            height: 2px;
+            top: 9px;
+        }
+        
+        #crosshair::after {
+            width: 2px;
+            height: 20px;
+            left: 9px;
+        }
+        
+        /* Controles móviles */
+        .mobile-controls {
+            display: none;
+            position: absolute;
+            bottom: 20px;
+            touch-action: none;
+        }
+        
+        @media (max-width: 768px), (pointer: coarse) {
+            .mobile-controls {
+                display: block;
+            }
+        }
+        
+        #joystick {
+            left: 20px;
+            width: 120px;
+            height: 120px;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 50%;
+            position: absolute;
+        }
+        
+        #joystick-knob {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.6);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        
+        .action-buttons {
+            position: absolute;
+            right: 20px;
+            bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(2, 60px);
+            gap: 10px;
+        }
+        
+        .action-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.3);
+            border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 10px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+            cursor: pointer;
+        }
+        
+        .action-btn:active {
+            background: rgba(255,255,255,0.5);
+        }
+        
+        #jump-btn {
+            grid-column: span 2;
+            width: 130px;
+        }
+        
+        /* Inventario rápido */
+        #hotbar {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2px;
+            background: rgba(0,0,0,0.5);
+            padding: 5px;
+            border-radius: 5px;
+        }
+        
+        .hotbar-slot {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #555;
+            background: rgba(100,100,100,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        
+        .hotbar-slot.active {
+            border-color: #fff;
+            background: rgba(150,150,150,0.7);
+        }
+        
+        /* Loading screen */
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a1a1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 1000;
+        }
+        
+        .loading-text {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        
+        .loading-bar {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .loading-progress {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        /* Menú de pausa */
+        #pauseMenu {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 999;
+        }
+        
+        .pause-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+        }
+        
+        .pause-content h2 {
+            font-size: 36px;
+            margin-bottom: 30px;
+        }
+        
+        .menu-btn {
+            display: block;
+            width: 200px;
+            padding: 15px;
+            margin: 10px auto;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .menu-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <!-- Canvas principal del juego -->
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- HUD -->
+    <div id="version" class="hud">v0.1.0</div>
+    
+    <div id="stats" class="hud">
+        FPS: <span id="fps">0</span><br>
+        Chunks: <span id="chunks">0</span><br>
+        Pos: <span id="position">0, 0, 0</span>
+    </div>
+    
+    <div id="crosshair"></div>
+    
+    <!-- Hotbar -->
+    <div id="hotbar">
+        <div class="hotbar-slot active" data-slot="0">Tierra</div>
+        <div class="hotbar-slot" data-slot="1">Piedra</div>
+        <div class="hotbar-slot" data-slot="2">Madera</div>
+        <div class="hotbar-slot" data-slot="3">Arena</div>
+        <div class="hotbar-slot" data-slot="4">Agua</div>
+        <div class="hotbar-slot" data-slot="5">Hojas</div>
+        <div class="hotbar-slot" data-slot="6">Vidrio</div>
+        <div class="hotbar-slot" data-slot="7">Ladrillo</div>
+        <div class="hotbar-slot" data-slot="8">TNT</div>
+    </div>
+    
+    <!-- Controles móviles -->
+    <div class="mobile-controls">
+        <div id="joystick">
+            <div id="joystick-knob"></div>
+        </div>
+        
+        <div class="action-buttons">
+            <button class="action-btn" id="place-btn">Colocar</button>
+            <button class="action-btn" id="break-btn">Romper</button>
+            <button class="action-btn" id="jump-btn">Saltar</button>
+        </div>
+    </div>
+    
+    <!-- Pantalla de carga -->
+    <div id="loading">
+        <div class="loading-text">Cargando VoxelCraft...</div>
+        <div class="loading-bar">
+            <div class="loading-progress" id="loadingProgress"></div>
+        </div>
+        <div style="margin-top: 10px; color: #888;">
+            <span id="loadingStatus">Inicializando...</span>
+        </div>
+    </div>
+    
+    <!-- Menú de pausa -->
+    <div id="pauseMenu">
+        <div class="pause-content">
+            <h2>Juego Pausado</h2>
+            <button class="menu-btn" onclick="game.resume()">Continuar</button>
+            <button class="menu-btn" onclick="game.settings()">Configuración</button>
+            <button class="menu-btn" onclick="location.reload()">Reiniciar</button>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="js/three.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/noise.js"></script>
+    <script src="js/chunk.js"></script>
+    <script src="js/world.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/mobile-controls.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
