@@ -7,6 +7,8 @@
 
 class ChunkManager {
     constructor(scene, camera) {
+        console.log('🏗️ Creando ChunkManager...');
+        
         this.scene = scene;
         this.camera = camera;
         
@@ -14,7 +16,7 @@ class ChunkManager {
         this.workers = [];
         this.workerPool = [];
         this.nextWorkerId = 0;
-        this.maxWorkers = CONFIG.WORKERS.CHUNK_WORKERS;
+        this.maxWorkers = Math.min(2, CONFIG.WORKERS.CHUNK_WORKERS); // Limitar a 2 workers por ahora
         
         // Chunks activos
         this.chunks = new Map();
@@ -55,74 +57,114 @@ class ChunkManager {
         // Optimización: Frustum culling
         this.frustum = new THREE.Frustum();
         this.frustumMatrix = new THREE.Matrix4();
+        
+        console.log('✅ ChunkManager creado');
     }
     
     initWorkers() {
+        console.log('👷 Inicializando workers...');
+        
         for (let i = 0; i < this.maxWorkers; i++) {
-            const worker = new Worker('js/workers/chunk-worker.js');
-            
-            worker.onmessage = (e) => this.handleWorkerMessage(e, i);
-            worker.onerror = (e) => this.handleWorkerError(e, i);
-            
-            // Inicializar worker
-            worker.postMessage({
-                type: 'init',
-                data: {
-                    seed: CONFIG.WORLD.TERRAIN.SEED,
-                    workerId: i
-                }
-            });
-            
-            this.workers.push({
-                id: i,
-                worker: worker,
-                busy: false,
-                currentTask: null
-            });
-            
-            this.workerPool.push(i);
-        }
-    }
-    
-    initMaterials() {
-        // Crear materiales optimizados para cada tipo de bloque
-        for (const [blockId, properties] of Object.entries(CONFIG.BLOCK_PROPERTIES)) {
-            if (properties.color) {
-                const material = new THREE.MeshLambertMaterial({
-                    color: properties.color,
-                    transparent: properties.transparent,
-                    opacity: properties.transparent ? 0.8 : 1.0,
-                    side: THREE.FrontSide
+            try {
+                const worker = new Worker('js/workers/chunk-worker.js');
+                
+                worker.onmessage = (e) => {
+                    console.log(`📨 Mensaje del Worker ${i}:`, e.data.type);
+                    this.handleWorkerMessage(e, i);
+                };
+                
+                worker.onerror = (e) => {
+                    console.error(`❌ Error en Worker ${i}:`, e);
+                    this.handleWorkerError(e, i);
+                };
+                
+                // Inicializar worker
+                console.log(`Inicializando Worker ${i}...`);
+                worker.postMessage({
+                    type: 'init',
+                    data: {
+                        seed: CONFIG.WORLD.TERRAIN.SEED,
+                        workerId: i
+                    }
                 });
                 
-                this.materialPool.set(parseInt(blockId), material);
+                this.workers.push({
+                    id: i,
+                    worker: worker,
+                    busy: false,
+                    currentTask: null
+                });
+                
+                this.workerPool.push(i);
+                
+                console.log(`✅ Worker ${i} creado`);
+            } catch (error) {
+                console.error(`❌ Error creando Worker ${i}:`, error);
             }
         }
         
+        console.log(`✅ ${this.workers.length} workers inicializados`);
+    }
+    
+    initMaterials() {
+        console.log('🎨 Inicializando materiales...');
+        
+        // Crear materiales optimizados para cada tipo de bloque
+        const blockColors = {
+            1: 0x7CFC00,  // Césped - verde brillante
+            2: 0x8B4513,  // Tierra - marrón
+            3: 0x808080,  // Piedra - gris
+            4: 0x654321,  // Madera - marrón oscuro
+            5: 0xF4E4BC,  // Arena - beige
+            6: 0x006994,  // Agua - azul
+            7: 0x228B22,  // Hojas - verde oscuro
+            8: 0xADD8E6,  // Vidrio - azul claro
+            9: 0xB22222,  // Ladrillo - rojo
+            10: 0xFF0000, // TNT - rojo brillante
+            11: 0x1C1C1C  // Bedrock - negro
+        };
+        
+        for (const [blockId, color] of Object.entries(blockColors)) {
+            const material = new THREE.MeshLambertMaterial({
+                color: color,
+                side: THREE.FrontSide
+            });
+            
+            this.materialPool.set(parseInt(blockId), material);
+        }
+        
         // Material especial para agua con transparencia
-        this.materialPool.set(CONFIG.BLOCKS.WATER, new THREE.MeshLambertMaterial({
+        this.materialPool.set(6, new THREE.MeshLambertMaterial({
             color: 0x006994,
             transparent: true,
             opacity: 0.6,
             side: THREE.DoubleSide
         }));
+        
+        console.log('✅ Materiales creados');
     }
     
     handleWorkerMessage(e, workerId) {
         const { type, data } = e.data;
         
+        console.log(`Worker ${workerId} mensaje tipo: ${type}`);
+        
         switch (type) {
             case 'initialized':
-                console.log(`Worker ${workerId} inicializado`);
+                console.log(`✅ Worker ${workerId} inicializado correctamente`);
                 break;
                 
             case 'chunkGenerated':
+                console.log(`📦 Chunk generado por Worker ${workerId}:`, data.chunkX, data.chunkZ);
                 this.onChunkGenerated(data, workerId);
                 break;
                 
             case 'batchGenerated':
                 this.onBatchGenerated(data, workerId);
                 break;
+                
+            default:
+                console.log(`Worker ${workerId} mensaje desconocido:`, type);
         }
         
         // Marcar worker como disponible
@@ -136,37 +178,48 @@ class ChunkManager {
     }
     
     handleWorkerError(e, workerId) {
-        console.error(`Error en worker ${workerId}:`, e);
+        console.error(`❌ Error en worker ${workerId}:`, e);
         
         // Reintentar la tarea
         const task = this.workers[workerId].currentTask;
         if (task) {
+            console.log('Reintentando tarea:', task);
             this.generationQueue.unshift(task);
         }
         
-        // Reiniciar worker
+        // Marcar worker como disponible
         this.workers[workerId].busy = false;
         this.workers[workerId].currentTask = null;
-        this.workerPool.push(workerId);
+        if (!this.workerPool.includes(workerId)) {
+            this.workerPool.push(workerId);
+        }
         this.stats.workersActive--;
+        
+        // Procesar siguiente tarea
+        this.processNextInQueue();
     }
     
     requestChunk(chunkX, chunkZ, priority = CONFIG.WORKERS.PRIORITY.NORMAL) {
         const key = `${chunkX},${chunkZ}`;
         
+        console.log(`📍 Solicitando chunk ${key} con prioridad ${priority}`);
+        
         // Verificar si ya está cargado
         if (this.chunks.has(key)) {
+            console.log(`Chunk ${key} ya está cargado`);
             this.stats.cacheHits++;
             return;
         }
         
         // Verificar si está en proceso
         if (this.loadingChunks.has(key)) {
+            console.log(`Chunk ${key} ya está en proceso`);
             return;
         }
         
         // Verificar cache
         if (this.chunkCache.has(key)) {
+            console.log(`Chunk ${key} encontrado en cache`);
             this.stats.cacheHits++;
             this.loadChunkFromCache(key);
             return;
@@ -192,33 +245,52 @@ class ChunkManager {
             return a.timestamp - b.timestamp;
         });
         
+        console.log(`📋 Chunk ${key} agregado a la cola. Cola actual: ${this.generationQueue.length}`);
+        
+        // Procesar inmediatamente si hay workers disponibles
         this.processNextInQueue();
     }
     
     processNextInQueue() {
-        if (this.generationQueue.length === 0 || this.workerPool.length === 0) {
+        if (this.generationQueue.length === 0) {
+            console.log('Cola vacía');
+            return;
+        }
+        
+        if (this.workerPool.length === 0) {
+            console.log('No hay workers disponibles');
             return;
         }
         
         const workerId = this.workerPool.shift();
         const task = this.generationQueue.shift();
         
+        console.log(`🚀 Asignando chunk ${task.key} al Worker ${workerId}`);
+        
         this.workers[workerId].busy = true;
         this.workers[workerId].currentTask = task;
         this.stats.workersActive++;
         
         // Enviar tarea al worker
-        this.workers[workerId].worker.postMessage({
-            type: 'generateChunk',
-            data: {
-                chunkX: task.chunkX,
-                chunkZ: task.chunkZ,
-                requestId: task.key
-            }
-        });
+        try {
+            this.workers[workerId].worker.postMessage({
+                type: 'generateChunk',
+                data: {
+                    chunkX: task.chunkX,
+                    chunkZ: task.chunkZ,
+                    requestId: task.key
+                }
+            });
+            console.log(`✅ Mensaje enviado al Worker ${workerId}`);
+        } catch (error) {
+            console.error(`❌ Error enviando mensaje al Worker ${workerId}:`, error);
+            this.handleWorkerError(error, workerId);
+        }
     }
     
     onChunkGenerated(data, workerId) {
+        console.log('🎯 Procesando chunk generado:', data);
+        
         const { chunkX, chunkZ, voxels, heightMap, biomeMap, generationTime } = data;
         const key = `${chunkX},${chunkZ}`;
         
@@ -226,6 +298,10 @@ class ChunkManager {
         const voxelArray = new Uint8Array(voxels);
         const heightArray = new Float32Array(heightMap);
         const biomeArray = new Float32Array(biomeMap);
+        
+        console.log(`📊 Chunk ${key} generado en ${generationTime.toFixed(2)}ms`);
+        console.log(`   - Voxels: ${voxelArray.length}`);
+        console.log(`   - HeightMap: ${heightArray.length}`);
         
         // Crear datos del chunk
         const chunkData = {
@@ -248,363 +324,68 @@ class ChunkManager {
         
         // Actualizar estadísticas
         this.stats.chunksLoaded++;
+        
+        console.log(`✅ Chunk ${key} completado. Total chunks: ${this.stats.chunksLoaded}`);
     }
     
     createChunkMesh(chunkData) {
         const { chunkX, chunkZ, voxels } = chunkData;
         const key = `${chunkX},${chunkZ}`;
         
-        // Usar greedy meshing para optimización
-        const meshData = CONFIG.OPTIMIZATION.GREEDY_MESHING ? 
-            this.greedyMesh(voxels) : 
-            this.simpleMesh(voxels);
+        console.log(`🔨 Creando mesh para chunk ${key}`);
         
-        if (meshData.vertices.length === 0) {
-            return; // Chunk vacío
+        // Por ahora, crear un mesh simple para visualizar
+        // Crear un cubo por cada bloque sólido (simplificado para testing)
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = this.materialPool.get(1) || new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+        
+        // Crear un grupo para el chunk
+        const chunkGroup = new THREE.Group();
+        chunkGroup.name = `chunk_${key}`;
+        
+        let blockCount = 0;
+        
+        // Crear cubos solo para la superficie (simplificado)
+        for (let x = 0; x < CONFIG.WORLD.CHUNK_SIZE; x++) {
+            for (let z = 0; z < CONFIG.WORLD.CHUNK_SIZE; z++) {
+                // Obtener altura del terreno
+                const heightIndex = x * CONFIG.WORLD.CHUNK_SIZE + z;
+                const height = chunkData.heightMap[heightIndex];
+                
+                if (height && height > 0) {
+                    const y = Math.floor(height);
+                    
+                    // Crear un cubo en esta posición
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.position.set(x, y, z);
+                    chunkGroup.add(mesh);
+                    blockCount++;
+                    
+                    // Limitar bloques para testing
+                    if (blockCount > 100) break;
+                }
+            }
+            if (blockCount > 100) break;
         }
         
-        // Crear o reutilizar geometría
-        const geometry = this.getPooledGeometry();
-        
-        // Configurar atributos de geometría
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(meshData.vertices, 3));
-        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(meshData.normals, 3));
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(meshData.uvs, 2));
-        geometry.setAttribute('color', new THREE.Float32BufferAttribute(meshData.colors, 3));
-        
-        // Optimización: Calcular bounding box para frustum culling
-        geometry.computeBoundingBox();
-        geometry.computeBoundingSphere();
-        
-        // Crear mesh con instanced rendering si está habilitado
-        let mesh;
-        if (CONFIG.OPTIMIZATION.INSTANCED_RENDERING && meshData.instances) {
-            mesh = this.createInstancedMesh(geometry, meshData.instances);
-        } else {
-            // Crear mesh normal con material múltiple
-            const materials = this.getMaterialsForChunk(meshData.blockTypes);
-            mesh = new THREE.Mesh(geometry, materials);
-        }
-        
-        // Posicionar mesh en el mundo
-        mesh.position.set(
+        // Posicionar el grupo en el mundo
+        chunkGroup.position.set(
             chunkX * CONFIG.WORLD.CHUNK_SIZE,
             0,
             chunkZ * CONFIG.WORLD.CHUNK_SIZE
         );
         
-        // Configurar propiedades del mesh
-        mesh.castShadow = CONFIG.RENDERING.SHADOWS_ENABLED;
-        mesh.receiveShadow = CONFIG.RENDERING.SHADOWS_ENABLED;
-        mesh.frustumCulled = CONFIG.RENDERING.FRUSTUM_CULLING;
-        
         // Agregar a la escena
-        this.scene.add(mesh);
+        this.scene.add(chunkGroup);
         
         // Guardar referencias
         this.chunks.set(key, chunkData);
-        this.chunkMeshes.set(key, mesh);
+        this.chunkMeshes.set(key, chunkGroup);
+        
+        console.log(`✅ Mesh creado para chunk ${key} con ${blockCount} bloques`);
         
         // Actualizar estadísticas
-        this.stats.verticesRendered += meshData.vertices.length / 3;
-    }
-    
-    greedyMesh(voxels) {
-        // Implementación de greedy meshing para reducir polígonos
-        const vertices = [];
-        const normals = [];
-        const uvs = [];
-        const colors = [];
-        const blockTypes = new Set();
-        
-        // Direcciones para las 6 caras del cubo
-        const directions = [
-            { axis: 0, dir: 1 },  // +X
-            { axis: 0, dir: -1 }, // -X
-            { axis: 1, dir: 1 },  // +Y
-            { axis: 1, dir: -1 }, // -Y
-            { axis: 2, dir: 1 },  // +Z
-            { axis: 2, dir: -1 }  // -Z
-        ];
-        
-        for (const { axis, dir } of directions) {
-            const mask = new Uint8Array(CONFIG.WORLD.CHUNK_SIZE * CONFIG.WORLD.CHUNK_SIZE);
-            
-            for (let d = 0; d < CONFIG.WORLD.CHUNK_HEIGHT; d++) {
-                // Generar máscara para esta capa
-                let n = 0;
-                for (let u = 0; u < CONFIG.WORLD.CHUNK_SIZE; u++) {
-                    for (let v = 0; v < CONFIG.WORLD.CHUNK_SIZE; v++) {
-                        const pos = [0, 0, 0];
-                        pos[axis] = d;
-                        pos[(axis + 1) % 3] = u;
-                        pos[(axis + 2) % 3] = v;
-                        
-                        const current = this.getVoxel(voxels, pos[0], pos[1], pos[2]);
-                        
-                        pos[axis] += dir;
-                        const neighbor = this.getVoxel(voxels, pos[0], pos[1], pos[2]);
-                        
-                        if (current && !neighbor) {
-                            mask[n] = current;
-                        } else {
-                            mask[n] = 0;
-                        }
-                        n++;
-                    }
-                }
-                
-                // Generar mesh desde la máscara
-                n = 0;
-                for (let j = 0; j < CONFIG.WORLD.CHUNK_SIZE; j++) {
-                    for (let i = 0; i < CONFIG.WORLD.CHUNK_SIZE;) {
-                        if (mask[n]) {
-                            const blockType = mask[n];
-                            blockTypes.add(blockType);
-                            
-                            // Calcular dimensiones del quad
-                            let w = 1;
-                            while (i + w < CONFIG.WORLD.CHUNK_SIZE && mask[n + w] === blockType) {
-                                w++;
-                            }
-                            
-                            let h = 1;
-                            let done = false;
-                            while (j + h < CONFIG.WORLD.CHUNK_SIZE) {
-                                for (let k = 0; k < w; k++) {
-                                    if (mask[n + k + h * CONFIG.WORLD.CHUNK_SIZE] !== blockType) {
-                                        done = true;
-                                        break;
-                                    }
-                                }
-                                if (done) break;
-                                h++;
-                            }
-                            
-                            // Agregar quad
-                            const x = [0, 0, 0];
-                            x[axis] = d;
-                            x[(axis + 1) % 3] = i;
-                            x[(axis + 2) % 3] = j;
-                            
-                            const du = [0, 0, 0];
-                            du[(axis + 1) % 3] = w;
-                            
-                            const dv = [0, 0, 0];
-                            dv[(axis + 2) % 3] = h;
-                            
-                            this.addQuad(
-                                vertices, normals, uvs, colors,
-                                x, du, dv, dir, blockType
-                            );
-                            
-                            // Limpiar máscara
-                            for (let l = 0; l < h; l++) {
-                                for (let k = 0; k < w; k++) {
-                                    mask[n + k + l * CONFIG.WORLD.CHUNK_SIZE] = 0;
-                                }
-                            }
-                            
-                            i += w;
-                            n += w;
-                        } else {
-                            i++;
-                            n++;
-                        }
-                    }
-                }
-            }
-        }
-        
-        return {
-            vertices: new Float32Array(vertices),
-            normals: new Float32Array(normals),
-            uvs: new Float32Array(uvs),
-            colors: new Float32Array(colors),
-            blockTypes: Array.from(blockTypes)
-        };
-    }
-    
-    simpleMesh(voxels) {
-        // Meshing simple sin optimización (fallback)
-        const vertices = [];
-        const normals = [];
-        const uvs = [];
-        const colors = [];
-        const blockTypes = new Set();
-        
-        for (let x = 0; x < CONFIG.WORLD.CHUNK_SIZE; x++) {
-            for (let y = 0; y < CONFIG.WORLD.CHUNK_HEIGHT; y++) {
-                for (let z = 0; z < CONFIG.WORLD.CHUNK_SIZE; z++) {
-                    const voxel = this.getVoxel(voxels, x, y, z);
-                    
-                    if (voxel && voxel !== CONFIG.BLOCKS.AIR) {
-                        blockTypes.add(voxel);
-                        
-                        // Verificar caras visibles
-                        const faces = [
-                            { dir: [1, 0, 0], check: [x + 1, y, z] },   // +X
-                            { dir: [-1, 0, 0], check: [x - 1, y, z] },  // -X
-                            { dir: [0, 1, 0], check: [x, y + 1, z] },   // +Y
-                            { dir: [0, -1, 0], check: [x, y - 1, z] },  // -Y
-                            { dir: [0, 0, 1], check: [x, y, z + 1] },   // +Z
-                            { dir: [0, 0, -1], check: [x, y, z - 1] }   // -Z
-                        ];
-                        
-                        for (const face of faces) {
-                            const neighbor = this.getVoxel(voxels, ...face.check);
-                            
-                            if (!neighbor || neighbor === CONFIG.BLOCKS.AIR) {
-                                this.addCubeFace(
-                                    vertices, normals, uvs, colors,
-                                    [x, y, z], face.dir, voxel
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        return {
-            vertices: new Float32Array(vertices),
-            normals: new Float32Array(normals),
-            uvs: new Float32Array(uvs),
-            colors: new Float32Array(colors),
-            blockTypes: Array.from(blockTypes)
-        };
-    }
-    
-    getVoxel(voxels, x, y, z) {
-        if (x < 0 || x >= CONFIG.WORLD.CHUNK_SIZE ||
-            y < 0 || y >= CONFIG.WORLD.CHUNK_HEIGHT ||
-            z < 0 || z >= CONFIG.WORLD.CHUNK_SIZE) {
-            return 0;
-        }
-        
-        const index = x + y * CONFIG.WORLD.CHUNK_SIZE * CONFIG.WORLD.CHUNK_SIZE + z * CONFIG.WORLD.CHUNK_SIZE;
-        return voxels[index];
-    }
-    
-    addQuad(vertices, normals, uvs, colors, pos, du, dv, dir, blockType) {
-        const color = this.getBlockColor(blockType);
-        const normal = dir > 0 ? [0, 0, 0] : [0, 0, 0];
-        normal[Math.abs(dir) - 1] = dir > 0 ? 1 : -1;
-        
-        // Vértices del quad
-        const v = [
-            [pos[0], pos[1], pos[2]],
-            [pos[0] + du[0], pos[1] + du[1], pos[2] + du[2]],
-            [pos[0] + du[0] + dv[0], pos[1] + du[1] + dv[1], pos[2] + du[2] + dv[2]],
-            [pos[0] + dv[0], pos[1] + dv[1], pos[2] + dv[2]]
-        ];
-        
-        // Agregar dos triángulos
-        const indices = [0, 1, 2, 0, 2, 3];
-        for (const i of indices) {
-            vertices.push(...v[i]);
-            normals.push(...normal);
-            uvs.push(i === 1 || i === 2 ? 1 : 0, i === 2 || i === 3 ? 1 : 0);
-            colors.push(...color);
-        }
-    }
-    
-    addCubeFace(vertices, normals, uvs, colors, pos, dir, blockType) {
-        // Implementación simplificada para agregar una cara del cubo
-        const color = this.getBlockColor(blockType);
-        
-        // Definir vértices según la dirección
-        let faceVertices;
-        if (dir[0] === 1) { // +X
-            faceVertices = [
-                [pos[0] + 1, pos[1], pos[2]],
-                [pos[0] + 1, pos[1] + 1, pos[2]],
-                [pos[0] + 1, pos[1] + 1, pos[2] + 1],
-                [pos[0] + 1, pos[1], pos[2] + 1]
-            ];
-        } else if (dir[0] === -1) { // -X
-            faceVertices = [
-                [pos[0], pos[1], pos[2] + 1],
-                [pos[0], pos[1] + 1, pos[2] + 1],
-                [pos[0], pos[1] + 1, pos[2]],
-                [pos[0], pos[1], pos[2]]
-            ];
-        } else if (dir[1] === 1) { // +Y
-            faceVertices = [
-                [pos[0], pos[1] + 1, pos[2] + 1],
-                [pos[0] + 1, pos[1] + 1, pos[2] + 1],
-                [pos[0] + 1, pos[1] + 1, pos[2]],
-                [pos[0], pos[1] + 1, pos[2]]
-            ];
-        } else if (dir[1] === -1) { // -Y
-            faceVertices = [
-                [pos[0], pos[1], pos[2]],
-                [pos[0] + 1, pos[1], pos[2]],
-                [pos[0] + 1, pos[1], pos[2] + 1],
-                [pos[0], pos[1], pos[2] + 1]
-            ];
-        } else if (dir[2] === 1) { // +Z
-            faceVertices = [
-                [pos[0], pos[1], pos[2] + 1],
-                [pos[0] + 1, pos[1], pos[2] + 1],
-                [pos[0] + 1, pos[1] + 1, pos[2] + 1],
-                [pos[0], pos[1] + 1, pos[2] + 1]
-            ];
-        } else { // -Z
-            faceVertices = [
-                [pos[0] + 1, pos[1], pos[2]],
-                [pos[0], pos[1], pos[2]],
-                [pos[0], pos[1] + 1, pos[2]],
-                [pos[0] + 1, pos[1] + 1, pos[2]]
-            ];
-        }
-        
-        // Agregar triángulos
-        const indices = [0, 1, 2, 0, 2, 3];
-        for (const i of indices) {
-            vertices.push(...faceVertices[i]);
-            normals.push(...dir);
-            uvs.push(i === 1 || i === 2 ? 1 : 0, i === 2 || i === 3 ? 1 : 0);
-            colors.push(...color);
-        }
-    }
-    
-    getBlockColor(blockType) {
-        const properties = CONFIG.BLOCK_PROPERTIES[blockType];
-        if (properties && properties.color) {
-            const color = new THREE.Color(properties.color);
-            return [color.r, color.g, color.b];
-        }
-        return [1, 1, 1];
-    }
-    
-    getMaterialsForChunk(blockTypes) {
-        const materials = [];
-        for (const blockType of blockTypes) {
-            if (this.materialPool.has(blockType)) {
-                materials.push(this.materialPool.get(blockType));
-            }
-        }
-        return materials.length > 1 ? materials : materials[0];
-    }
-    
-    getPooledGeometry() {
-        if (this.geometryPool.length > 0) {
-            return this.geometryPool.pop();
-        }
-        return new THREE.BufferGeometry();
-    }
-    
-    returnGeometryToPool(geometry) {
-        if (this.geometryPool.length < CONFIG.OPTIMIZATION.GEOMETRY_CACHE_SIZE) {
-            geometry.deleteAttribute('position');
-            geometry.deleteAttribute('normal');
-            geometry.deleteAttribute('uv');
-            geometry.deleteAttribute('color');
-            this.geometryPool.push(geometry);
-        } else {
-            geometry.dispose();
-        }
+        this.stats.verticesRendered += blockCount * 8; // 8 vértices por cubo
     }
     
     addToCache(key, chunkData) {
@@ -631,17 +412,17 @@ class ChunkManager {
         if (mesh) {
             this.scene.remove(mesh);
             
-            // Retornar geometría al pool
-            this.returnGeometryToPool(mesh.geometry);
-            
-            // Limpiar mesh
-            if (mesh.material) {
-                if (Array.isArray(mesh.material)) {
-                    mesh.material.forEach(m => m.dispose());
-                } else {
-                    mesh.material.dispose();
+            // Limpiar geometrías y materiales
+            mesh.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
                 }
-            }
+            });
             
             this.chunkMeshes.delete(key);
         }
@@ -666,11 +447,13 @@ class ChunkManager {
             CONFIG.WORLD.RENDER_DISTANCE;
         
         // Actualizar frustum para culling
-        this.frustumMatrix.multiplyMatrices(
-            this.camera.projectionMatrix,
-            this.camera.matrixWorldInverse
-        );
-        this.frustum.setFromProjectionMatrix(this.frustumMatrix);
+        if (this.camera) {
+            this.frustumMatrix.multiplyMatrices(
+                this.camera.projectionMatrix,
+                this.camera.matrixWorldInverse
+            );
+            this.frustum.setFromProjectionMatrix(this.frustumMatrix);
+        }
         
         // Solicitar chunks en rango
         const chunksToLoad = [];
@@ -704,8 +487,9 @@ class ChunkManager {
             return a.distance - b.distance;
         });
         
-        // Cargar chunks
-        for (const chunk of chunksToLoad) {
+        // Cargar chunks (limitar a los primeros 10 para no sobrecargar)
+        for (let i = 0; i < Math.min(10, chunksToLoad.length); i++) {
+            const chunk = chunksToLoad[i];
             this.requestChunk(chunk.chunkX, chunk.chunkZ, chunk.priority);
         }
         
@@ -722,40 +506,15 @@ class ChunkManager {
             }
         }
         
-        // Actualizar LOD para chunks visibles
-        this.updateLOD(playerPosition);
-        
         // Actualizar estadísticas
         this.updateStats();
-    }
-    
-    updateLOD(playerPosition) {
-        if (!CONFIG.RENDERING.LOD_ENABLED) return;
-        
-        for (const [key, mesh] of this.chunkMeshes) {
-            const distance = mesh.position.distanceTo(playerPosition);
-            
-            // Aplicar nivel de detalle apropiado
-            for (const lodLevel of this.lodLevels) {
-                if (distance <= lodLevel.distance) {
-                    mesh.visible = true;
-                    // Aquí se podría cambiar la geometría por una versión simplificada
-                    break;
-                }
-            }
-            
-            // Ocultar chunks muy lejanos
-            if (distance > CONFIG.RENDERING.FOG.FAR) {
-                mesh.visible = false;
-            }
-        }
     }
     
     updateStats() {
         this.stats.chunksInView = 0;
         
         for (const [key, mesh] of this.chunkMeshes) {
-            if (mesh.visible && this.frustum.intersectsObject(mesh)) {
+            if (mesh.visible) {
                 this.stats.chunksInView++;
             }
         }
@@ -774,12 +533,16 @@ class ChunkManager {
         // Limpiar meshes
         for (const [key, mesh] of this.chunkMeshes) {
             this.scene.remove(mesh);
-            mesh.geometry.dispose();
-            if (Array.isArray(mesh.material)) {
-                mesh.material.forEach(m => m.dispose());
-            } else {
-                mesh.material.dispose();
-            }
+            mesh.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
         }
         
         // Limpiar pools
