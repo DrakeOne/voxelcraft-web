@@ -6,7 +6,7 @@
  */
 
 // Importar scripts necesarios en el worker
-self.importScripts('../lib/noise.js');
+importScripts('../lib/noise.js');
 
 // Cache de chunks generados para reutilización
 const chunkCache = new Map();
@@ -205,7 +205,7 @@ class ChunkGenerator {
                         if (oreValue > 0.85) {
                             // Minerales raros en profundidad
                             if (y < 10) {
-                                voxels[index] = 10; // Mineral raro (representado como TNT por ahora)
+                                voxels[index] = 10; // Mineral raro (TNT por ahora)
                             } else if (y < 30) {
                                 voxels[index] = 9; // Mineral común (ladrillo por ahora)
                             }
