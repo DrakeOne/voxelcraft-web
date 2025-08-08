@@ -326,16 +326,24 @@
     <div id="pauseMenu">
         <div class="pause-content">
             <h2>Juego Pausado</h2>
-            <button class="menu-btn" onclick="game.resume()">Continuar</button>
-            <button class="menu-btn" onclick="game.settings()">Configuración</button>
+            <button class="menu-btn" onclick="if(window.game) game.resume()">Continuar</button>
+            <button class="menu-btn" onclick="if(window.game) game.settings()">Configuración</button>
             <button class="menu-btn" onclick="location.reload()">Reiniciar</button>
         </div>
     </div>
     
-    <!-- Scripts -->
+    <!-- Scripts - Orden correcto de carga -->
     <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
     <script src="js/lib/noise.js"></script>
+    <script src="js/world.js"></script>
+    <script src="js/chunk.js"></script>
+    <script src="js/noise.js"></script>
     <script src="js/chunk-manager.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/mobile-controls.js"></script>
+    <script src="js/game.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>
