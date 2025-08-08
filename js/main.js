@@ -5,11 +5,18 @@
  * Punto de entrada del juego
  */
 
-// Variables globales
-let game = null;
-let scene, camera, renderer;
-let chunkManager, player, controls, mobileControls;
-let world;
+// Variables globales - TODAS en window para acceso global
+window.game = null;
+window.scene = null;
+window.camera = null;
+window.renderer = null;
+window.chunkManager = null;
+window.player = null;
+window.controls = null;
+window.mobileControls = null;
+window.world = null;
+
+// Stats locales
 let stats = {
     fps: 0,
     chunks: 0,
@@ -21,6 +28,10 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
     console.log('🎮 Iniciando VoxelCraft v0.1.0...');
+    
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('INIT_START');
+    }
     
     // Actualizar estado de carga
     updateLoadingStatus('Inicializando Three.js...');
@@ -64,48 +75,67 @@ async function init() {
     updateLoadingProgress(95);
     await generateInitialWorld();
     
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('INIT_COMPLETE');
+    }
+    
     // Ocultar pantalla de carga
     updateLoadingProgress(100);
     setTimeout(() => {
         document.getElementById('loading').style.display = 'none';
         // Iniciar loop de renderizado
         animate();
+        console.log('✅ VoxelCraft iniciado correctamente');
+        
+        // Log estado final
+        console.log('📊 Estado del sistema:');
+        console.log('- Scene:', window.scene ? 'OK' : 'ERROR');
+        console.log('- Camera:', window.camera ? 'OK' : 'ERROR');
+        console.log('- Renderer:', window.renderer ? 'OK' : 'ERROR');
+        console.log('- ChunkManager:', window.chunkManager ? 'OK' : 'ERROR');
+        console.log('- World:', window.world ? 'OK' : 'ERROR');
+        console.log('- Player:', window.player ? 'OK' : 'ERROR');
+        
+        if (window.chunkManager) {
+            console.log('- Workers:', window.chunkManager.workers.length);
+            console.log('- Chunks loaded:', window.chunkManager.chunks.size);
+        }
     }, 500);
-    
-    console.log('✅ VoxelCraft iniciado correctamente');
 }
 
 function initThreeJS() {
+    console.log('📦 Inicializando Three.js...');
+    
     // Crear escena
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Color del cielo
+    window.scene = new THREE.Scene();
+    window.scene.background = new THREE.Color(0x87CEEB); // Color del cielo
     
     // Configurar cámara
     const aspect = window.innerWidth / window.innerHeight;
-    camera = new THREE.PerspectiveCamera(
+    window.camera = new THREE.PerspectiveCamera(
         CONFIG.PLAYER.FOV,
         aspect,
         0.1,
         1000
     );
-    camera.position.set(0, 50, 0);
+    window.camera.position.set(0, 50, 0);
     
     // Configurar renderer
     const canvas = document.getElementById('gameCanvas');
-    renderer = new THREE.WebGLRenderer({
+    window.renderer = new THREE.WebGLRenderer({
         canvas: canvas,
         antialias: CONFIG.RENDERING.ANTIALIAS,
         powerPreference: "high-performance"
     });
     
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = CONFIG.RENDERING.SHADOWS_ENABLED;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    window.renderer.setSize(window.innerWidth, window.innerHeight);
+    window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    window.renderer.shadowMap.enabled = CONFIG.RENDERING.SHADOWS_ENABLED;
+    window.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
     // Configurar niebla
     if (CONFIG.RENDERING.FOG.ENABLED) {
-        scene.fog = new THREE.Fog(
+        window.scene.fog = new THREE.Fog(
             CONFIG.RENDERING.FOG.COLOR,
             CONFIG.RENDERING.FOG.NEAR,
             CONFIG.RENDERING.FOG.FAR
@@ -114,12 +144,19 @@ function initThreeJS() {
     
     // Manejar redimensionamiento
     window.addEventListener('resize', onWindowResize);
+    
+    console.log('✅ Three.js inicializado');
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('THREE_INIT');
+    }
 }
 
 function initLighting() {
+    console.log('💡 Configurando iluminación...');
+    
     // Luz ambiental
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+    window.scene.add(ambientLight);
     
     // Luz direccional (sol)
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -137,56 +174,127 @@ function initLighting() {
         directionalLight.shadow.camera.bottom = -100;
     }
     
-    scene.add(directionalLight);
+    window.scene.add(directionalLight);
     
     // Luz de hemisferio para mejor iluminación
     const hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x545454, 0.4);
-    scene.add(hemisphereLight);
+    window.scene.add(hemisphereLight);
+    
+    console.log('✅ Iluminación configurada');
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('LIGHTING_INIT');
+    }
 }
 
 function initChunkSystem() {
-    // Crear el gestor de chunks
-    chunkManager = new ChunkManager(scene, camera);
+    console.log('🏗️ Inicializando sistema de chunks...');
+    
+    try {
+        // Crear el gestor de chunks
+        window.chunkManager = new ChunkManager(window.scene, window.camera);
+        console.log('✅ ChunkManager creado con', window.chunkManager.workers.length, 'workers');
+        
+        if (window.debugSystem) {
+            window.debugSystem.checkpoint('CHUNK_MANAGER_INIT', {
+                workers: window.chunkManager.workers.length,
+                maxWorkers: window.chunkManager.maxWorkers
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error creando ChunkManager:', error);
+        if (window.debugSystem) {
+            window.debugSystem.error('CHUNK_INIT_ERROR', error.message);
+        }
+    }
 }
 
 function initWorld() {
-    // Crear el mundo
-    world = new World(scene);
+    console.log('🌍 Creando mundo...');
+    
+    try {
+        // Crear el mundo
+        window.world = new World(window.scene);
+        console.log('✅ World creado');
+        
+        if (window.debugSystem) {
+            window.debugSystem.checkpoint('WORLD_INIT');
+        }
+    } catch (error) {
+        console.error('❌ Error creando World:', error);
+        if (window.debugSystem) {
+            window.debugSystem.error('WORLD_INIT_ERROR', error.message);
+        }
+    }
 }
 
 function initPlayer() {
-    // Crear objeto del jugador
-    player = new Player(scene, camera);
+    console.log('🚶 Creando jugador...');
+    
+    try {
+        // Crear objeto del jugador
+        window.player = new Player(window.scene, window.camera);
+        console.log('✅ Player creado');
+        
+        if (window.debugSystem) {
+            window.debugSystem.checkpoint('PLAYER_INIT');
+        }
+    } catch (error) {
+        console.error('❌ Error creando Player:', error);
+        if (window.debugSystem) {
+            window.debugSystem.error('PLAYER_INIT_ERROR', error.message);
+        }
+    }
 }
 
 function initGameControls() {
+    console.log('🎮 Configurando controles...');
+    
     const canvas = document.getElementById('gameCanvas');
     
-    if (CONFIG.DEVICE.IS_MOBILE || CONFIG.DEVICE.HAS_TOUCH) {
-        // Controles móviles
-        mobileControls = new MobileControls(camera, canvas);
-        player.setMobileControls(mobileControls);
+    try {
+        if (CONFIG.DEVICE.IS_MOBILE || CONFIG.DEVICE.HAS_TOUCH) {
+            // Controles móviles
+            window.mobileControls = new MobileControls(window.camera, canvas);
+            window.player.setMobileControls(window.mobileControls);
+            
+            // Callbacks para bloques
+            window.mobileControls.onBlockPlace = () => placeBlock();
+            window.mobileControls.onBlockBreak = () => breakBlock();
+            
+            console.log('✅ Controles móviles configurados');
+        } else {
+            // Controles de desktop
+            window.controls = new Controls(window.camera, canvas);
+            window.player.setControls(window.controls);
+            
+            // Callbacks para bloques
+            window.controls.onBlockPlace = (intersection, blockType) => placeBlock();
+            window.controls.onBlockBreak = (intersection) => breakBlock();
+            
+            console.log('✅ Controles de desktop configurados');
+        }
         
-        // Callbacks para bloques
-        mobileControls.onBlockPlace = () => placeBlock();
-        mobileControls.onBlockBreak = () => breakBlock();
-    } else {
-        // Controles de desktop
-        controls = new Controls(camera, canvas);
-        player.setControls(controls);
-        
-        // Callbacks para bloques
-        controls.onBlockPlace = (intersection, blockType) => placeBlock();
-        controls.onBlockBreak = (intersection) => breakBlock();
+        if (window.debugSystem) {
+            window.debugSystem.checkpoint('CONTROLS_INIT');
+        }
+    } catch (error) {
+        console.error('❌ Error configurando controles:', error);
+        if (window.debugSystem) {
+            window.debugSystem.error('CONTROLS_INIT_ERROR', error.message);
+        }
     }
 }
 
 function initUI() {
+    console.log('🎨 Inicializando UI...');
+    
     // Inicializar hotbar
     const hotbarSlots = document.querySelectorAll('.hotbar-slot');
     hotbarSlots.forEach((slot, index) => {
         slot.addEventListener('click', () => {
-            player.selectHotbarSlot(index);
+            if (window.player) {
+                window.player.selectHotbarSlot(index);
+            }
         });
     });
     
@@ -196,11 +304,24 @@ function initUI() {
             togglePause();
         }
     });
+    
+    console.log('✅ UI inicializada');
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('UI_INIT');
+    }
 }
 
 async function generateInitialWorld() {
+    console.log('🌎 Generando mundo inicial...');
+    
+    if (!window.chunkManager) {
+        console.error('❌ ChunkManager no disponible para generar mundo');
+        return;
+    }
+    
     // Generar chunks alrededor del spawn
     const spawnRadius = 3;
+    let chunksRequested = 0;
     
     for (let x = -spawnRadius; x <= spawnRadius; x++) {
         for (let z = -spawnRadius; z <= spawnRadius; z++) {
@@ -209,18 +330,27 @@ async function generateInitialWorld() {
                 const priority = distance < 2 ? 
                     CONFIG.WORKERS.PRIORITY.CRITICAL : 
                     CONFIG.WORKERS.PRIORITY.HIGH;
-                chunkManager.requestChunk(x, z, priority);
+                window.chunkManager.requestChunk(x, z, priority);
+                chunksRequested++;
             }
         }
     }
     
+    console.log(`✅ Solicitados ${chunksRequested} chunks iniciales`);
+    
     // Esperar un poco para que se generen algunos chunks
     await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    if (window.debugSystem) {
+        window.debugSystem.checkpoint('WORLD_GENERATION', {
+            chunksRequested: chunksRequested
+        });
+    }
 }
 
 function placeBlock() {
     // TODO: Implementar colocación de bloques
-    console.log('Colocando bloque:', player.getSelectedBlock());
+    console.log('Colocando bloque:', window.player ? window.player.getSelectedBlock() : 'N/A');
 }
 
 function breakBlock() {
@@ -232,7 +362,7 @@ function togglePause() {
     const pauseMenu = document.getElementById('pauseMenu');
     if (pauseMenu.style.display === 'block') {
         pauseMenu.style.display = 'none';
-        if (!CONFIG.DEVICE.IS_MOBILE && controls) {
+        if (!CONFIG.DEVICE.IS_MOBILE && window.controls) {
             const canvas = document.getElementById('gameCanvas');
             canvas.requestPointerLock();
         }
@@ -249,19 +379,27 @@ function updateStats() {
     document.getElementById('fps').textContent = Math.round(stats.fps);
     
     // Actualizar chunks
-    const chunkStats = chunkManager.getStats();
-    document.getElementById('chunks').textContent = 
-        `${chunkStats.chunksInView}/${chunkStats.chunksLoaded}`;
+    if (window.chunkManager) {
+        const chunkStats = window.chunkManager.getStats();
+        document.getElementById('chunks').textContent = 
+            `${chunkStats.chunksInView}/${chunkStats.chunksLoaded}`;
+    }
     
     // Actualizar posición
-    document.getElementById('position').textContent = 
-        `${Math.round(player.position.x)}, ${Math.round(player.position.y)}, ${Math.round(player.position.z)}`;
+    if (window.player) {
+        document.getElementById('position').textContent = 
+            `${Math.round(window.player.position.x)}, ${Math.round(window.player.position.y)}, ${Math.round(window.player.position.z)}`;
+    }
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (window.camera) {
+        window.camera.aspect = window.innerWidth / window.innerHeight;
+        window.camera.updateProjectionMatrix();
+    }
+    if (window.renderer) {
+        window.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 }
 
 function updateLoadingStatus(status) {
@@ -300,41 +438,48 @@ function animate() {
     }
     
     // Actualizar jugador
-    if (player) {
-        player.update(deltaTime, world);
+    if (window.player) {
+        window.player.update(deltaTime, window.world);
     }
     
     // Actualizar chunks
-    if (chunkManager && player) {
-        chunkManager.update(player.position);
+    if (window.chunkManager && window.player) {
+        window.chunkManager.update(window.player.position);
     }
     
     // Actualizar controles
-    if (controls) {
-        controls.update(deltaTime);
+    if (window.controls) {
+        window.controls.update(deltaTime);
     }
-    if (mobileControls) {
-        mobileControls.update(deltaTime);
+    if (window.mobileControls) {
+        window.mobileControls.update(deltaTime);
     }
     
     // Actualizar estadísticas
     updateStats();
     
     // Renderizar
-    if (renderer && scene && camera) {
-        renderer.render(scene, camera);
+    if (window.renderer && window.scene && window.camera) {
+        window.renderer.render(window.scene, window.camera);
     }
 }
 
-// Hacer el juego accesible globalmente para debugging
+// Actualizar el objeto game global
 window.game = {
-    scene,
-    camera,
-    renderer,
-    player,
-    chunkManager,
-    world,
     resume: () => togglePause(),
     settings: () => console.log('Configuración no implementada aún'),
-    togglePause: togglePause
+    togglePause: togglePause,
+    // Funciones de debug adicionales
+    getState: () => ({
+        scene: window.scene,
+        camera: window.camera,
+        renderer: window.renderer,
+        player: window.player,
+        chunkManager: window.chunkManager,
+        world: window.world,
+        controls: window.controls,
+        mobileControls: window.mobileControls
+    })
 };
+
+console.log('📜 main.js cargado completamente');
