@@ -335,6 +335,7 @@
     <!-- Scripts - Orden correcto de carga -->
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>
+    <script src="js/debug.js"></script>
     <script src="js/lib/noise.js"></script>
     <script src="js/world.js"></script>
     <script src="js/chunk.js"></script>
@@ -345,5 +346,51 @@
     <script src="js/mobile-controls.js"></script>
     <script src="js/game.js"></script>
     <script src="js/main.js"></script>
+    
+    <!-- Script de inicialización con debug -->
+    <script>
+        // Activar debug inmediatamente
+        console.log('🚀 Starting VoxelCraft with Debug System...');
+        
+        // Verificar que todo esté cargado
+        window.addEventListener('load', () => {
+            console.log('📦 Window loaded, checking components...');
+            
+            // Verificar componentes críticos
+            const components = {
+                'Three.js': typeof THREE !== 'undefined',
+                'Config': typeof CONFIG !== 'undefined',
+                'Utils': typeof Utils !== 'undefined',
+                'Debug': typeof debugSystem !== 'undefined',
+                'ChunkManager': typeof ChunkManager !== 'undefined'
+            };
+            
+            for (const [name, loaded] of Object.entries(components)) {
+                if (!loaded) {
+                    console.error(`❌ ${name} not loaded!`);
+                } else {
+                    console.log(`✅ ${name} loaded`);
+                }
+            }
+            
+            // Agregar comandos de debug a la consola
+            console.log('');
+            console.log('🔧 Debug Commands Available:');
+            console.log('- debug.test() : Test chunk generation');
+            console.log('- debug.force() : Force generate world');
+            console.log('- debug.workers() : Check workers status');
+            console.log('- debug.clear() : Clear debug panel');
+            console.log('- debug.toggle() : Toggle debug panel');
+            console.log('');
+            
+            // Auto-ejecutar test después de 3 segundos
+            setTimeout(() => {
+                console.log('🧪 Running automatic diagnostics...');
+                if (window.debug) {
+                    window.debug.test();
+                }
+            }, 3000);
+        });
+    </script>
 </body>
 </html>
